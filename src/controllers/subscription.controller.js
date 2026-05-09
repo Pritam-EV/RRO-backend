@@ -126,9 +126,9 @@ const getMySubscription = async (req, res) => {
   try {
     const subscription = await Subscription.findOne({
       userId: req.user._id,
-      status: { $in: ["payment_pending", "paid_pending_installation", "installation_assigned", "active"] },
+      status: { $in: ["payment_pending", "paid_pending_installation", "installation_assigned", "installed", "active"] },
     })
-      .populate("planId", "brandName modelName perMonthAmount deposit planId")
+      .populate("planId", "brandName modelName perMonthAmount deposit planId billingCycleMonths")
       .populate("deviceId", "deviceId brandName modelName status isOnline")  // ← ADD THIS LINE
       .sort({ createdAt: -1 });
 

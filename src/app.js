@@ -12,6 +12,8 @@ const subscriptionRoutes = require("./routes/subscription.routes");
 const productRoutes      = require("./routes/product.routes");
 const referRoutes        = require("./routes/refer.routes");
 const planRoutes = require("./routes/plan.routes");
+const cron                  = require("node-cron");
+const { expireSubscriptions } = require("./utils/subscriptionExpiry");
 
 const app = express();
 
@@ -61,5 +63,14 @@ app.use((req, res) => {
 });
 
 app.use(errorHandler);
+
+
+expireSubscriptions();
+
+// Run every hour
+cron.schedule("0 * * * *", () => {
+  console.log("[Cron] Running subscription expiry check...");
+  expireSubscriptions();
+});
 
 module.exports = app;

@@ -2,6 +2,7 @@
   "name": "rro-backend",
   "version": "1.0.0",
   "main": "index.js",
+  "node-cron": "^3.0.3",
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js"
