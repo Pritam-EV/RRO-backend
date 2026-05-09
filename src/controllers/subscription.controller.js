@@ -1,167 +1,138 @@
+// src/controllers/subscription.controller.js
 const Subscription = require("../models/Subscription.model");
-const Payment = require("../models/Payment.model");
-const { createPaymentSession } = require("../utils/zohoPayments");
+const Plan         = require("../models/Plan.model");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 
-// Available plans — in production move these to a Plans collection or env config
-const PLANS = [
-  {
-    name: "Basic",
-    price: 99,
-    durationDays: 30,
-    dailyLimitLitres: 10,
-    features: ["10L/day", "Valve control", "Basic usage stats"],
-  },
-  {
-    name: "Standard",
-    price: 199,
-    durationDays: 30,
-    dailyLimitLitres: 20,
-    features: ["20L/day", "Valve control", "Full usage analytics", "Email support"],
-  },
-  {
-    name: "Premium",
-    price: 349,
-    durationDays: 30,
-    dailyLimitLitres: 50,
-    features: ["50L/day", "Valve control", "Full analytics", "TDS monitoring", "Priority support"],
-  },
-];
-
-/**
- * GET /api/subscriptions/plans
- * Returns available subscription plans
- */
+/* ─── GET /api/subscriptions/plans ─────────────────────────── */
+// (kept for backward compat — /api/plans is the primary route now)
 const getPlans = async (req, res) => {
   try {
-    return sendSuccess(res, { plans: PLANS }, "Available plans");
+    const plans = await Plan.find({ isActive: true }).sort({ sortOrder: 1 });
+    return sendSuccess(res, { plans }, "Available plans");
   } catch (err) {
     return sendError(res, err.message, 500);
   }
 };
 
-/**
- * POST /api/subscriptions/initiate
- * Creates a pending subscription + Zoho payment session.
- * Body: { planName: "Basic" | "Standard" | "Premium" }
- *
- * Flow:
- * 1. Create pending Subscription in DB
- * 2. Create Payment record linked to subscription
- * 3. Return Zoho session details to frontend widget
- * 4. On Zoho webhook success → payment.controller activates subscription
- */
-const initiatePlanPurchase = async (req, res) => {
+/* ─── POST /api/subscriptions/order ────────────────────────── */
+/*
+  Body:
+  {
+    planId: "64abc...",          // Plan._id (MongoDB ObjectId)
+    deliveryAddress: {
+      fullName, mobile, address, pincode, city
+    },
+    paymentMethod: "upi" | "card" | "cod",
+    deliverySlot: "tmrw-am" | "tmrw-pm" | "day2-am" | "day2-pm"
+  }
+*/
+const createOrder = async (req, res) => {
   try {
-    const { planName } = req.body;
+    const { planId, deliveryAddress, paymentMethod, deliverySlot } = req.body;
     const user = req.user;
 
-    const plan = PLANS.find(
-      (p) => p.name.toLowerCase() === planName?.toLowerCase()
-    );
-    if (!plan) {
-      return sendError(res, `Plan "${planName}" not found`, 404);
+    /* ── 1. Validate input ── */
+    if (!planId || !deliveryAddress || !paymentMethod || !deliverySlot) {
+      return sendError(res, "planId, deliveryAddress, paymentMethod and deliverySlot are required", 400);
     }
 
-    // Block if user already has active subscription
-    const existing = await Subscription.findOne({
-      userId: user._id,
-      isActive: true,
-      endDate: { $gt: new Date() },
-    });
-    if (existing) {
-      return sendError(
-        res,
-        `You already have an active ${existing.plan.name} plan (expires ${existing.endDate.toDateString()})`,
-        409
-      );
+    const { fullName, mobile, address, pincode, city } = deliveryAddress;
+    if (!fullName || !mobile || !address || !pincode || !city) {
+      return sendError(res, "All delivery address fields are required", 400);
     }
 
-    const referenceNumber = `RRO-SUB-${Date.now()}-${user._id.toString().slice(-5)}`;
+    /* ── 2. Look up Plan ── */
+    const plan = await Plan.findById(planId);
+    if (!plan || !plan.isActive) {
+      return sendError(res, "Plan not found or no longer available", 404);
+    }
 
-    // Create Zoho payment session
-    const zohoResponse = await createPaymentSession({
-      amount: plan.price,
-      referenceNumber,
-      description: `RRO ${plan.name} Plan — ${plan.durationDays} days`,
-      email: user.email || "",
-      phone: user.mobile || "",
-      metaData: [
-        { key: "userId", value: user._id.toString() },
-        { key: "purpose", value: "subscription" },
-        { key: "plan", value: plan.name },
-      ],
-    });
-
-    // Create Payment record (pending)
-    const payment = await Payment.create({
+    /* ── 3. Block duplicate active/pending orders ── */
+    const duplicate = await Subscription.findOne({
       userId: user._id,
-      referenceNumber,
-      zohoSessionId:
-        zohoResponse?.payment_session?.payments_session_id || null,
-      amount: plan.price,
-      purpose: "subscription",
-      description: `RRO ${plan.name} Plan`,
-      receiptEmail: user.email,
-      status: "pending",
-      metaData: [
-        { key: "userId", value: user._id.toString() },
-        { key: "plan", value: plan.name },
-      ],
+      planId: plan._id,
+      status: { $in: ["initiated", "payment_pending", "paid_pending_installation", "installation_assigned", "active"] },
     });
+    if (duplicate) {
+      return sendError(res, "You already have an active or pending subscription for this plan", 409);
+    }
 
-    // Create Subscription record (inactive until payment succeeds)
+    /* ── 4. Generate subscription code ── */
+    const subscriptionCode = `RRO-${Date.now()}-${user._id.toString().slice(-4).toUpperCase()}`;
+
+    /* ── 5. Calculate amounts ── */
+    const amount        = plan.perMonthAmount || plan.price || 0;
+    const depositAmount = plan.deposit        || plan.depositAmount || 0;
+    const installationAmount = plan.installationCharges || 0;
+    const firstPayment  = amount + depositAmount + installationAmount;
+
+    /* ── 6. Map delivery slot to a readable string ── */
+    const slotMap = {
+      "tmrw-am":  "Tomorrow, 9:00 AM – 1:00 PM",
+      "tmrw-pm":  "Tomorrow, 2:00 PM – 6:00 PM",
+      "day2-am":  "Day after tomorrow, 9:00 AM – 1:00 PM",
+      "day2-pm":  "Day after tomorrow, 2:00 PM – 6:00 PM",
+    };
+
+    /* ── 7. Create Subscription ── */
     const subscription = await Subscription.create({
-      userId: user._id,
-      plan,
-      startDate: null,
-      endDate: new Date(Date.now() + plan.durationDays * 24 * 60 * 60 * 1000), // Placeholder
-      isActive: false,
-      paymentId: payment._id,
-      autoRenew: false,
+      userId:           user._id,
+      planId:           plan._id,
+      subscriptionCode,
+      status:           "payment_pending",
+      paymentStatus:    "pending",
+      amount,
+      depositAmount,
+      billingCycleMonths: plan.billingCycleMonths || 1,
+      notes: JSON.stringify({
+        deliveryAddress: { fullName, mobile, address, pincode, city },
+        paymentMethod,
+        deliverySlot:    slotMap[deliverySlot] || deliverySlot,
+        firstPayment,
+        installationAmount,
+        orderedAt:       new Date().toISOString(),
+      }),
     });
-
-    // Link payment to subscription
-    payment.subscriptionId = subscription._id;
-    await payment.save();
 
     return sendSuccess(
       res,
       {
-        subscriptionId: subscription._id,
-        paymentId: payment._id,
-        referenceNumber,
-        zohoApiKey: process.env.ZOHO_API_KEY,
-        zohoSessionId: payment.zohoSessionId,
-        amount: plan.price,
-        plan,
+        subscriptionId:   subscription._id,
+        subscriptionCode: subscription.subscriptionCode,
+        status:           subscription.status,
+        paymentStatus:    subscription.paymentStatus,
+        firstPayment,
+        plan: {
+          brandName:         plan.brandName,
+          modelName:         plan.modelName,
+          perMonthAmount:    amount,
+          deposit:           depositAmount,
+          installationCharges: installationAmount,
+        },
+        deliverySlot: slotMap[deliverySlot] || deliverySlot,
+        message: "Your order has been placed. Payment and installation are pending.",
       },
-      "Subscription payment session created"
+      "Order placed successfully"
     );
   } catch (err) {
-    console.error("initiatePlanPurchase error:", err.message);
+    console.error("createOrder error:", err.message);
     return sendError(res, err.message, 500);
   }
 };
 
-/**
- * GET /api/subscriptions/my
- * Returns the current user's active subscription
- */
+/* ─── GET /api/subscriptions/my ────────────────────────────── */
 const getMySubscription = async (req, res) => {
   try {
     const subscription = await Subscription.findOne({
       userId: req.user._id,
-      isActive: true,
-      endDate: { $gt: new Date() },
-    }).populate("paymentId", "referenceNumber status paidAt amount");
+      status: { $in: ["payment_pending", "paid_pending_installation", "installation_assigned", "active"] },
+    })
+      .populate("planId", "brandName modelName perMonthAmount deposit planId")
+      .sort({ createdAt: -1 });
 
     return sendSuccess(
       res,
-      {
-        subscription: subscription || null,
-        hasActiveSubscription: !!subscription,
-      },
+      { subscription: subscription || null, hasActiveSubscription: !!subscription },
       "Subscription details"
     );
   } catch (err) {
@@ -169,15 +140,12 @@ const getMySubscription = async (req, res) => {
   }
 };
 
-/**
- * GET /api/subscriptions/history
- * All past subscriptions for the user
- */
+/* ─── GET /api/subscriptions/history ───────────────────────── */
 const getSubscriptionHistory = async (req, res) => {
   try {
     const subscriptions = await Subscription.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
-      .populate("paymentId", "referenceNumber status paidAt amount");
+      .populate("planId", "brandName modelName perMonthAmount planId");
 
     return sendSuccess(res, { subscriptions }, "Subscription history");
   } catch (err) {
@@ -187,7 +155,7 @@ const getSubscriptionHistory = async (req, res) => {
 
 module.exports = {
   getPlans,
-  initiatePlanPurchase,
+  createOrder,
   getMySubscription,
   getSubscriptionHistory,
 };

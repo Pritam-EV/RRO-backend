@@ -3,15 +3,15 @@ const router = express.Router();
 const { protect } = require("../middlewares/auth.middleware");
 const {
   getPlans,
-  initiatePlanPurchase,
+  createOrder,
   getMySubscription,
   getSubscriptionHistory,
 } = require("../controllers/subscription.controller");
 
-router.get("/plans", getPlans);           // Public — anyone can see plans
+router.get("/plans", getPlans);
 
 router.use(protect);
-router.post("/initiate", initiatePlanPurchase);
+router.post("/order", createOrder);
 router.get("/my", getMySubscription);
 router.get("/history", getSubscriptionHistory);
 
