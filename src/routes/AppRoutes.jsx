@@ -7,9 +7,7 @@ import LoginPage          from "../pages/Auth/LoginPage.jsx";
 import SignupPage         from "../pages/Auth/SignupPage.jsx";       // ← NEW
 import OtpPage            from "../pages/Auth/OtpPage.jsx";
 import RegisterPage       from "../pages/Auth/RegisterPage.jsx";     // ← NEW
-import ProfileFormPage    from "../pages/Auth/ProfileFormPage.jsx";
 import ProfilePage        from "../pages/Auth/ProfilePage.jsx";
-import ChoicePage         from "../pages/Auth/ChoicePage.jsx";
 import ForgotPasswordPage from "../pages/Auth/ForgotPasswordPage.jsx";
 
 import ConnectDevicePage   from "../pages/Device/ConnectDevicePage.jsx";
@@ -42,9 +40,7 @@ const AppRoutes = () => {
         <Route path="/otp"             element={<OtpPage />} />
         <Route path="/register"        element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/profile"         element={<ProfileFormPage />} />
         <Route path="/profile-page"    element={<ProfilePage />} />
-        <Route path="/choice"          element={<ChoicePage />} />
       </Route>
 
       {/* ── Protected logged-in routes ── */}
