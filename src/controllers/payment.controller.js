@@ -237,7 +237,7 @@ const _activateSubscription = async (payment) => {
   // Find the pending subscription linked to this payment
   const subscription = await Subscription.findOne({
     userId: payment.userId,
-    isActive: false,
+     paymentStatus: "pending", 
     paymentId: payment._id,
   });
 
@@ -247,16 +247,13 @@ const _activateSubscription = async (payment) => {
   }
 
   const now = new Date();
-  subscription.isActive = true;
-  subscription.startDate = now;
-  subscription.endDate = new Date(
-    now.getTime() + subscription.plan.durationDays * 24 * 60 * 60 * 1000
-  );
-  await subscription.save();
+// Replace the isActive = true + startDate/endDate block with:
+subscription.status        = "paid_pending_installation";  // not active yet — device not installed
+subscription.paymentStatus = "success";
+await subscription.save();
 
-  // Link payment back to subscription
-  payment.subscriptionId = subscription._id;
-  await payment.save();
+payment.subscriptionId = subscription._id;
+await payment.save();
 
   console.log(`✅ Subscription activated for user ${payment.userId}`);
 };

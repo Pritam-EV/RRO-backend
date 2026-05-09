@@ -121,6 +121,7 @@ const createOrder = async (req, res) => {
 };
 
 /* ─── GET /api/subscriptions/my ────────────────────────────── */
+// GET /api/subscriptions/my
 const getMySubscription = async (req, res) => {
   try {
     const subscription = await Subscription.findOne({
@@ -128,6 +129,7 @@ const getMySubscription = async (req, res) => {
       status: { $in: ["payment_pending", "paid_pending_installation", "installation_assigned", "active"] },
     })
       .populate("planId", "brandName modelName perMonthAmount deposit planId")
+      .populate("deviceId", "deviceId brandName modelName status isOnline")  // ← ADD THIS LINE
       .sort({ createdAt: -1 });
 
     return sendSuccess(
@@ -151,6 +153,41 @@ const getSubscriptionHistory = async (req, res) => {
   } catch (err) {
     return sendError(res, err.message, 500);
   }
+};
+
+const linkDeviceToSubscription = async (req, res) => {
+  const { subscriptionCode } = req.params;
+  const { deviceId } = req.body;   // "RRO001"
+
+  const subscription = await Subscription.findOne({
+    subscriptionCode: subscriptionCode.toUpperCase(),
+    paymentStatus: "success",
+  });
+  if (!subscription) return sendError(res, "Subscription not found or payment pending", 404);
+
+  const device = await Device.findOne({ deviceId: deviceId.toUpperCase() });
+  if (!device) return sendError(res, "Device not found", 404);
+
+  // Link device → subscription
+  subscription.deviceId    = device._id;
+  subscription.status      = "installed";
+  subscription.installedAt = new Date();
+  subscription.startDate   = new Date();
+  // endDate = startDate + billingCycleMonths
+  const end = new Date();
+  end.setMonth(end.getMonth() + (subscription.billingCycleMonths || 1));
+  subscription.endDate = end;
+  subscription.status  = "active";
+  await subscription.save();
+
+  // Update device
+  if (!device.userIds.includes(subscription.userId)) {
+    device.userIds.push(subscription.userId);
+  }
+  device.status = "active";
+  await device.save();
+
+  return sendSuccess(res, { subscription, device }, "Device linked and subscription activated");
 };
 
 module.exports = {

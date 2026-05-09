@@ -51,6 +51,7 @@ exports.getMyDevices = asyncHandler(async (req, res) => {
 });
 
 // GET /api/devices/overview/:deviceId
+// GET /api/devices/overview/:deviceId
 exports.getOverview = asyncHandler(async (req, res) => {
   const device = await Device.findOne({
     deviceId: req.params.deviceId.toUpperCase(),
@@ -61,12 +62,16 @@ exports.getOverview = asyncHandler(async (req, res) => {
 
   const latest = await WaterLog.findOne({ deviceId: device._id }).sort({ recordedAt: -1 });
 
+  // ← ADD: sum total energy (litres) from all logs for this device
+  const totalAgg = await WaterLog.aggregate([
+    { $match: { deviceId: device._id } },
+    { $group: { _id: null, totalLitres: { $sum: "$energy" } } }
+  ]);
+  const totalLitres = totalAgg[0]?.totalLitres ?? 0;
+
   return sendSuccess(
     res,
-    {
-      device,
-      latestReading: latest,
-    },
+    { device, latestReading: latest, totalLitres },
     "Overview fetched successfully"
   );
 });
