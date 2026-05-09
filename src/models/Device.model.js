@@ -8,7 +8,7 @@ userId: {
   default: null,
   index: true,
 },
-
+//123//
     deviceId: {
       type: String,
       required: [true, "Device ID is required"],
