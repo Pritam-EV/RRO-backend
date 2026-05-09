@@ -88,7 +88,7 @@ exports.getUsageHistory = async (req, res) => {
     return sendError(res, e.message, 500);
   }
 };
-
+// 
 // ── PATCH /api/water/:deviceId/valve ─────────────────────
 exports.controlValve = async (req, res) => {
   try {
