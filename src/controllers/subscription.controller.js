@@ -2,7 +2,7 @@
 const Subscription = require("../models/Subscription.model");
 const Plan         = require("../models/Plan.model");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
-
+const Device = require("../models/Device.model");  // ← missing import
 /* ─── GET /api/subscriptions/plans ─────────────────────────── */
 // (kept for backward compat — /api/plans is the primary route now)
 const getPlans = async (req, res) => {
@@ -195,4 +195,5 @@ module.exports = {
   createOrder,
   getMySubscription,
   getSubscriptionHistory,
+  linkDeviceToSubscription,
 };

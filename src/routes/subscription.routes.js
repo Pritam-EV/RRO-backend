@@ -1,5 +1,8 @@
 const express = require("express");
 const router = express.Router();
+const Subscription = require("../models/Subscription.model");
+const Device       = require("../models/Device.model");
+const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { protect } = require("../middlewares/auth.middleware");
 const {
   getPlans,
