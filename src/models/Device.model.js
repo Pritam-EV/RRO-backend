@@ -2,13 +2,16 @@ const mongoose = require("mongoose");
 
 const deviceSchema = new mongoose.Schema(
   {
-userId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  default: null,
+userIds: {
+  type: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    }
+  ],
+  default: [],
   index: true,
 },
-//123//
     deviceId: {
       type: String,
       required: [true, "Device ID is required"],

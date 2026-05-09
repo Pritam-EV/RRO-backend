@@ -22,16 +22,20 @@ exports.connectDevice = asyncHandler(async (req, res) => {
     return sendError(res, "Device ID and Serial Number do not match our records", 404);
   }
 
-  if (device.userId && device.userId.toString() !== req.user._id.toString()) {
-    return sendError(res, "This device is already linked to another user", 409);
-  }
+  const alreadyLinked = device.userIds?.some(
+    (id) => id.toString() === req.user._id.toString()
+  );
 
-  if (device.userId && device.userId.toString() === req.user._id.toString()) {
+  if (alreadyLinked) {
     return sendSuccess(res, { device }, "Device already linked to your account");
   }
 
-  device.userId = req.user._id;
-  device.status = "linked";
+  device.userIds.addToSet(req.user._id);
+
+  if (device.status === "inactive") {
+    device.status = "linked";
+  }
+
   await device.save();
 
   return sendSuccess(res, { device }, "Device linked successfully");
@@ -40,7 +44,7 @@ exports.connectDevice = asyncHandler(async (req, res) => {
 // GET /api/devices/list
 exports.getMyDevices = asyncHandler(async (req, res) => {
   const devices = await Device.find({
-    userId: req.user._id,
+    userIds: req.user._id,
   }).sort({ createdAt: -1 });
 
   return sendSuccess(res, { devices }, "Devices fetched successfully");
@@ -50,7 +54,7 @@ exports.getMyDevices = asyncHandler(async (req, res) => {
 exports.getOverview = asyncHandler(async (req, res) => {
   const device = await Device.findOne({
     deviceId: req.params.deviceId.toUpperCase(),
-    userId: req.user._id,
+    userIds: req.user._id,
   });
 
   if (!device) return sendError(res, "Device not found", 404);
@@ -73,7 +77,7 @@ exports.getUsage = asyncHandler(async (req, res) => {
 
   const device = await Device.findOne({
     deviceId: req.params.deviceId.toUpperCase(),
-    userId: req.user._id,
+    userIds: req.user._id,
   });
 
   if (!device) return sendError(res, "Device not found", 404);
@@ -92,10 +96,7 @@ exports.getUsage = asyncHandler(async (req, res) => {
 
   return sendSuccess(
     res,
-    {
-      logs,
-      count: logs.length,
-    },
+    { logs, count: logs.length },
     "Usage logs fetched successfully"
   );
 });
@@ -158,7 +159,7 @@ exports.updateDevice = asyncHandler(async (req, res) => {
 
   const device = await Device.findOne({
     deviceId: req.params.deviceId.toUpperCase(),
-    userId: req.user._id,
+    userIds: req.user._id,
   });
 
   if (!device) return sendError(res, "Device not found", 404);
@@ -203,12 +204,20 @@ exports.updateDevice = asyncHandler(async (req, res) => {
 exports.removeDevice = asyncHandler(async (req, res) => {
   const device = await Device.findOne({
     deviceId: req.params.deviceId.toUpperCase(),
-    userId: req.user._id,
+    userIds: req.user._id,
   });
 
   if (!device) return sendError(res, "Device not found", 404);
 
-  await device.deleteOne();
+  device.userIds = device.userIds.filter(
+    (id) => id.toString() !== req.user._id.toString()
+  );
 
-  return sendSuccess(res, {}, "Device deleted successfully");
+  if (device.userIds.length === 0) {
+    device.status = "inactive";
+  }
+
+  await device.save();
+
+  return sendSuccess(res, {}, "Device unlinked successfully");
 });

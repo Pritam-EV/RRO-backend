@@ -1,13 +1,23 @@
 const mongoose = require("mongoose");
 
-const planSchema = new mongoose.Schema({
-  name: { type: String, required: true },       // Basic / Standard / Premium
-  price: { type: Number, required: true },
-  durationDays: { type: Number, required: true },
-  dailyLimitLitres: { type: Number, required: true }, // Max L/day allowed on this plan
-  features: [String],
-  isActive: { type: Boolean, default: true },
-});
+const planSchema = new mongoose.Schema(
+  {
+    name: String,
+    code: { type: String, unique: true, uppercase: true, trim: true },
+    brandId: { type: mongoose.Schema.Types.ObjectId, ref: "Brand", default: null },
+    description: String,
+    deviceType: { type: String, default: "RO" },
+    price: Number,
+    depositAmount: { type: Number, default: 0 },
+    billingCycleMonths: { type: Number, default: 1 },
+    waterLimitLitres: { type: Number, default: null },
+    serviceVisitsIncluded: { type: Number, default: 0 },
+    filterReplacementIncluded: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
+    sortOrder: { type: Number, default: 0 },
+  },
+  { timestamps: true }
+);
 
 const subscriptionSchema = new mongoose.Schema(
   {
@@ -15,16 +25,112 @@ const subscriptionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
-    plan: { type: planSchema, required: true },
-    startDate: { type: Date, default: Date.now },
-    endDate: { type: Date, required: true },
-    isActive: { type: Boolean, default: true },
+    deviceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Device",
+      default: null,
+      index: true,
+    },
+    planId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Plan",
+      required: true,
+      index: true,
+    },
+    brandId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Brand",
+      default: null,
+      index: true,
+    },
+    technicianId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Technician",
+      default: null,
+      index: true,
+    },
+    subscriptionCode: {
+      type: String,
+      unique: true,
+      trim: true,
+      uppercase: true,
+    },
+    status: {
+      type: String,
+      enum: [
+        "initiated",
+        "payment_pending",
+        "payment_failed",
+        "paid_pending_installation",
+        "installation_assigned",
+        "installed",
+        "active",
+        "paused",
+        "expired",
+        "cancelled",
+        "refunded",
+      ],
+      default: "initiated",
+      index: true,
+    },
+    startDate: {
+      type: Date,
+      default: null,
+    },
+    endDate: {
+      type: Date,
+      default: null,
+    },
+    installedAt: {
+      type: Date,
+      default: null,
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    depositAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    currency: {
+      type: String,
+      default: "INR",
+    },
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Payment",
+      default: null,
     },
-    autoRenew: { type: Boolean, default: false },
+    transactionId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    paymentStatus: {
+      type: String,
+      enum: ["pending", "success", "failed", "refunded", "partially_refunded"],
+      default: "pending",
+      index: true,
+    },
+    billingCycleMonths: {
+      type: Number,
+      default: 1,
+    },
+    renewalOfSubscriptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Subscription",
+      default: null,
+    },
+    notes: {
+      type: String,
+      default: null,
+      trim: true,
+    },
   },
   { timestamps: true }
 );

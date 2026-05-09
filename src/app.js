@@ -11,6 +11,7 @@ const paymentRoutes      = require("./routes/payment.routes");
 const subscriptionRoutes = require("./routes/subscription.routes");
 const productRoutes      = require("./routes/product.routes");
 const referRoutes        = require("./routes/refer.routes");
+const planRoutes = require("./routes/plan.routes");
 
 const app = express();
 
@@ -54,7 +55,7 @@ app.use("/api/payments",      paymentRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/products",      productRoutes);
 app.use("/api/refer",         referRoutes);
-
+app.use("/api/plans", planRoutes);
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
