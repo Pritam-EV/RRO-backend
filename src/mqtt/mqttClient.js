@@ -73,24 +73,22 @@ async function handleTelemetry(payload) {
   // findOneAndUpdate + upsert = safe for concurrent MQTT pushes
   const userId = device.userIds?.[0] || null;  // primary user
 
-  await WaterLog.findOneAndUpdate(
-    { deviceStringId: devIdUpper, date: dateStr },
-    {
-      $set: {
-        deviceId:         device._id,
-        deviceStringId:   devIdUpper,
-        userId,
-        date:             dateStr,
-        totalMlToday,
-        totalLitresToday: litres,
-        valveStatus:      valveSafe,
-        deviceStatus:     statSafe,
-        lastActiveAt:     lastActive ? new Date(lastActive) : now,
-        source:           "mqtt",
-      },
+
+await WaterLog.findOneAndUpdate(
+  { deviceId: devIdUpper },
+  {
+    $set: {
+      deviceId:     devIdUpper,
+      totalMlToday: totalMlToday,
+      totalMl:      totalMlToday,   // until daily-reset logic is added
+      valveStatus:  valveSafe,
+      deviceStatus: statSafe,
+      lastActiveAt: lastActive ? new Date(lastActive) : now,
+      source:       "mqtt",
     },
-    { upsert: true, new: true }
-  );
+  },
+  { upsert: true, new: true }
+);
 
   // ── 3. Update Device live state ───────────────────────
   await Device.findByIdAndUpdate(device._id, {
