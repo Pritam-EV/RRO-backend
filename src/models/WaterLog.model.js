@@ -1,111 +1,84 @@
+// src/models/WaterLog.model.js
 const mongoose = require("mongoose");
 
 const waterLogSchema = new mongoose.Schema(
   {
+    // ── References ──────────────────────────────────────
     deviceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Device",
-      required: [true, "Device ID is required"],
+      required: true,
+      index: true,
+    },
+    deviceStringId: {
+      type: String,   // "RRO001" — stored for fast lookup without populate
+      required: true,
+      uppercase: true,
+      trim: true,
     },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: [true, "User ID is required"],
+      required: true,
     },
 
-    // ── Water Measurement ──────────────────────────────
-    waterQty: {
-      type: Number,
-      required: [true, "Water quantity is required"],
-      min: [0, "Water quantity cannot be negative"],
+    // ── Daily Water Data (from MQTT, once per day) ──────
+    date: {
+      type: String,   // "2026-05-10" — ISO date string, used as upsert key
+      required: true,
+      index: true,
     },
-    flowRate: {
-      type: Number,
+    totalMlToday: {
+      type: Number,   // total ml consumed today — cumulative, sent by device
       default: 0,
+      min: 0,
     },
-    totalQtyToday: {
-      type: Number,
-      default: 0,
-    },
-    totalQtySinceReset: {
-      type: Number,
+    totalLitresToday: {
+      type: Number,   // computed: totalMlToday / 1000
       default: 0,
     },
 
-    // ── Valve Control ──────────────────────────────────
+    // ── Valve ────────────────────────────────────────────
     valveStatus: {
       type: String,
       enum: ["ON", "OFF"],
-      required: [true, "Valve status is required"],
+      default: "ON",
     },
     valveChangedBy: {
       type: String,
-      enum: ["user", "auto", "admin", "limit_exceeded", "subscription_expired"],
-      default: "auto",
+      enum: ["device", "user", "admin", "auto"],
+      default: "device",
     },
 
-    // ── Session Info ───────────────────────────────────
-    sessionStart: {
+    // ── Device Status at time of log ─────────────────────
+    deviceStatus: {
+      type: String,
+      enum: ["active", "inactive"],
+      default: "active",
+    },
+    lastActiveAt: {
       type: Date,
       default: null,
     },
-    sessionEnd: {
-      type: Date,
-      default: null,
-    },
-    sessionDurationSecs: {
-      type: Number,
-      default: 0,
-    },
 
-    // ── Water Quality ──────────────────────────────────
-    tdsIn: {
-      type: Number,       // TDS before RO filter (ppm)
-      default: null,
-    },
-    tdsOut: {
-      type: Number,       // TDS after RO filter (ppm)
-      default: null,
-    },
-
-    // ── Timestamp ─────────────────────────────────────
-    recordedAt: {
-      type: Date,
-      default: Date.now,
-      index: true,
+    // ── Source ───────────────────────────────────────────
+    source: {
+      type: String,
+      enum: ["mqtt", "manual", "api"],
+      default: "mqtt",
     },
   },
   {
-    timestamps: true,     // adds createdAt + updatedAt
-    versionKey: false,    // removes __v field
+    timestamps: true,   // createdAt = first log of day, updatedAt = last update
+    versionKey: false,
   }
 );
 
-// ── Indexes ───────────────────────────────────────────
-// For device log queries (most common — paginated log fetch)
-waterLogSchema.index({ deviceId: 1, recordedAt: -1 });
+// ── Compound unique index: one document per device per day ──
+waterLogSchema.index({ deviceStringId: 1, date: 1 }, { unique: true });
 
-// For today's summary & history queries
-waterLogSchema.index({ deviceId: 1, userId: 1, recordedAt: -1 });
-
-// For valve status queries
-waterLogSchema.index({ deviceId: 1, valveStatus: 1 });
-
-// ── Virtual: session duration in minutes ──────────────
-waterLogSchema.virtual("sessionDurationMins").get(function () {
-  return this.sessionDurationSecs
-    ? parseFloat((this.sessionDurationSecs / 60).toFixed(2))
-    : 0;
-});
-
-// ── Virtual: TDS rejection rate % ────────────────────
-waterLogSchema.virtual("tdsRejectionRate").get(function () {
-  if (this.tdsIn && this.tdsOut && this.tdsIn > 0) {
-    return parseFloat(
-      (((this.tdsIn - this.tdsOut) / this.tdsIn) * 100).toFixed(1)
-    );
-  }
-  return null;
-});
+// ── For dashboard queries ────────────────────────────────
+waterLogSchema.index({ deviceId: 1, date: -1 });
+waterLogSchema.index({ userId: 1, date: -1 });
 
 module.exports = mongoose.model("WaterLog", waterLogSchema);

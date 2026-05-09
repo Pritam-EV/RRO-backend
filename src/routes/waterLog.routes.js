@@ -1,18 +1,20 @@
+// src/routes/waterLog.routes.js
 const express = require("express");
-const router = express.Router();
+const router  = express.Router();
 const { protect } = require("../middlewares/auth.middleware");
 const {
-  logWaterUsage,
-  getDeviceLogs,
   getTodaySummary,
   getUsageHistory,
+  getOverviewData,
   controlValve,
 } = require("../controllers/waterLog.controller");
 
-router.post("/log", logWaterUsage);
-router.get("/:deviceId", protect, getDeviceLogs);
-router.get("/:deviceId/today", protect, getTodaySummary);
-router.get("/:deviceId/history", protect, getUsageHistory);
-router.patch("/:deviceId/valve", protect, controlValve);
+// All routes protected — user must be logged in
+router.use(protect);
+
+router.get("/:deviceId/overview", getOverviewData);   // ← OverviewPage uses this
+router.get("/:deviceId/today",    getTodaySummary);
+router.get("/:deviceId/history",  getUsageHistory);
+router.patch("/:deviceId/valve",  controlValve);
 
 module.exports = router;

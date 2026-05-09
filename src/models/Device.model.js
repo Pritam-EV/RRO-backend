@@ -87,11 +87,27 @@ userIds: {
       default: null,
       maxlength: [500, "Notes cannot exceed 500 characters"],
     },
+    // ── Live State (updated by MQTT) ─────────────────────
+valveStatus: {
+  type: String,
+  enum: ["ON", "OFF"],
+  default: "ON",
+},
+totalMlToday: {
+  type: Number,
+  default: 0,           // mirrored from latest MQTT push for fast overview reads
+},
+lastMqttAt: {
+  type: Date,
+  default: null,        // last time device sent ANY mqtt message
+},
+
   },
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
+  
 );
 
 module.exports = mongoose.model("Device", deviceSchema);

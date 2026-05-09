@@ -1,201 +1,136 @@
-const WaterLog = require("../models/WaterLog.model");
-const Device = require("../models/Device.model");
+// src/controllers/waterLog.controller.js
+const WaterLog  = require("../models/WaterLog.model");
+const Device    = require("../models/Device.model");
+const { sendSuccess, sendError } = require("../utils/apiResponse");
+const { publishValveCommand }    = require("../mqtt/mqttClient");
 
-// POST /api/water/log — called by ESP32 device
-const logWaterUsage = async (req, res, next) => {
+// ── GET /api/water/:deviceId/today ────────────────────────
+// Returns today's log for the device
+exports.getTodaySummary = async (req, res) => {
   try {
-    const {
-      deviceId,
-      userId,
-      waterQty,
-      flowRate,
-      totalQtyToday,
-      totalQtySinceReset,
-      valveStatus,
-      valveChangedBy,
-      sessionStart,
-      sessionEnd,
-      sessionDurationSecs,
-      tdsIn,
-      tdsOut,
-    } = req.body;
-
-    if (!deviceId || !userId || waterQty === undefined || !valveStatus) {
-      return res.status(400).json({
-        success: false,
-        message: "deviceId, userId, waterQty, valveStatus are required",
-      });
-    }
-
-    const log = await WaterLog.create({
-      deviceId,
-      userId,
-      waterQty,
-      flowRate,
-      totalQtyToday,
-      totalQtySinceReset,
-      valveStatus,
-      valveChangedBy: valveChangedBy || "auto",
-      sessionStart,
-      sessionEnd,
-      sessionDurationSecs,
-      tdsIn,
-      tdsOut,
-      recordedAt: new Date(),
+    const device = await Device.findOne({
+      deviceId: req.params.deviceId.toUpperCase(),
+      userIds:  req.user._id,
     });
+    if (!device) return sendError(res, "Device not found", 404);
 
-    // Update device last seen & online status
-    await Device.findByIdAndUpdate(deviceId, {
-      lastSeen: new Date(),
-      isOnline: true,
-    });
+    const today = new Date().toISOString().split("T")[0];
+    const log   = await WaterLog.findOne({ deviceStringId: device.deviceId, date: today });
 
-    res.status(201).json({ success: true, data: log });
-  } catch (err) {
-    next(err);
+    return sendSuccess(res, {
+      date:             today,
+      totalMlToday:     log?.totalMlToday     ?? 0,
+      totalLitresToday: log?.totalLitresToday ?? 0,
+      valveStatus:      log?.valveStatus      ?? device.valveStatus ?? "ON",
+      deviceStatus:     log?.deviceStatus     ?? device.status,
+      lastActiveAt:     log?.lastActiveAt     ?? device.lastSeenAt,
+      isOnline:         device.isOnline,
+    }, "Today summary");
+  } catch (e) {
+    return sendError(res, e.message, 500);
   }
 };
 
-// GET /api/water/:deviceId — paginated logs
-const getDeviceLogs = async (req, res, next) => {
+// ── GET /api/water/:deviceId/history?days=30 ─────────────
+// Returns daily logs for past N days (default 30)
+exports.getUsageHistory = async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-
-    const [logs, total] = await Promise.all([
-      WaterLog.find({ deviceId })
-        .sort({ recordedAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      WaterLog.countDocuments({ deviceId }),
-    ]);
-
-    res.json({
-      success: true,
-      data: logs,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
+    const device = await Device.findOne({
+      deviceId: req.params.deviceId.toUpperCase(),
+      userIds:  req.user._id,
     });
-  } catch (err) {
-    next(err);
-  }
-};
+    if (!device) return sendError(res, "Device not found", 404);
 
-// GET /api/water/:deviceId/today — today's summary
-const getTodaySummary = async (req, res, next) => {
-  try {
-    const { deviceId } = req.params;
-
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const logs = await WaterLog.find({
-      deviceId,
-      recordedAt: { $gte: startOfDay },
-    }).lean();
-
-    const totalQty = logs.reduce((sum, l) => sum + (l.waterQty || 0), 0);
-    const sessions = logs.filter((l) => l.sessionDurationSecs > 0).length;
-    const avgTdsOut =
-      logs.filter((l) => l.tdsOut).reduce((sum, l) => sum + l.tdsOut, 0) /
-        (logs.filter((l) => l.tdsOut).length || 1);
-
-    res.json({
-      success: true,
-      data: {
-        totalQtyToday: parseFloat(totalQty.toFixed(2)),
-        sessionCount: sessions,
-        avgTdsOut: parseFloat(avgTdsOut.toFixed(1)),
-        logCount: logs.length,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// GET /api/water/:deviceId/history?range=7d|30d
-const getUsageHistory = async (req, res, next) => {
-  try {
-    const { deviceId } = req.params;
-    const range = req.query.range || "7d";
-    const days = range === "30d" ? 30 : 7;
-
+    const days  = Math.min(parseInt(req.query.days) || 30, 90);
     const since = new Date();
     since.setDate(since.getDate() - days);
+    const sinceStr = since.toISOString().split("T")[0];
 
     const logs = await WaterLog.find({
-      deviceId,
-      recordedAt: { $gte: since },
+      deviceStringId: device.deviceId,
+      date: { $gte: sinceStr },
     })
-      .sort({ recordedAt: 1 })
-      .lean();
+      .sort({ date: -1 })
+      .select("date totalMlToday totalLitresToday valveStatus deviceStatus lastActiveAt -_id");
 
-    // Group by date
-    const grouped = {};
-    logs.forEach((log) => {
-      const date = new Date(log.recordedAt).toISOString().split("T")[0];
-      if (!grouped[date]) grouped[date] = 0;
-      grouped[date] += log.waterQty || 0;
-    });
+    // total consumption over period
+    const totalLitres = logs.reduce((sum, l) => sum + (l.totalLitresToday || 0), 0);
 
-    const history = Object.entries(grouped).map(([date, qty]) => ({
-      date,
-      qty: parseFloat(qty.toFixed(2)),
-    }));
-
-    res.json({ success: true, data: history });
-  } catch (err) {
-    next(err);
+    return sendSuccess(res, {
+      deviceId:    device.deviceId,
+      days,
+      totalLitres: parseFloat(totalLitres.toFixed(3)),
+      logs,
+    }, "Usage history");
+  } catch (e) {
+    return sendError(res, e.message, 500);
   }
 };
 
-// PATCH /api/water/:deviceId/valve — open/close valve
-const controlValve = async (req, res, next) => {
+// ── GET /api/water/:deviceId/overview ────────────────────
+// Used by OverviewPage — totalLitres ALL TIME + today data
+exports.getOverviewData = async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    const { valveStatus, reason } = req.body;
+    const device = await Device.findOne({
+      deviceId: req.params.deviceId.toUpperCase(),
+      userIds:  req.user._id,
+    });
+    if (!device) return sendError(res, "Device not found", 404);
 
-    if (!["ON", "OFF"].includes(valveStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: "valveStatus must be ON or OFF",
-      });
+    // All-time total
+    const allTime = await WaterLog.aggregate([
+      { $match: { deviceStringId: device.deviceId } },
+      { $group: { _id: null, totalLitres: { $sum: "$totalLitresToday" } } },
+    ]);
+
+    // Today
+    const today    = new Date().toISOString().split("T")[0];
+    const todayLog = await WaterLog.findOne({ deviceStringId: device.deviceId, date: today });
+
+    return sendSuccess(res, {
+      device: {
+        deviceId:    device.deviceId,
+        isOnline:    device.isOnline,
+        valveStatus: device.valveStatus,
+        status:      device.status,
+        lastSeenAt:  device.lastSeenAt,
+      },
+      totalLitres:      parseFloat((allTime[0]?.totalLitres ?? 0).toFixed(3)),
+      todayLitres:      todayLog?.totalLitresToday ?? 0,
+      todayValve:       todayLog?.valveStatus ?? device.valveStatus ?? "ON",
+    }, "Overview data");
+  } catch (e) {
+    return sendError(res, e.message, 500);
+  }
+};
+
+// ── PATCH /api/water/:deviceId/valve ─────────────────────
+// User controls valve from app → publishes MQTT command
+exports.controlValve = async (req, res) => {
+  try {
+    const { valve } = req.body;   // "ON" or "OFF"
+    if (!["ON", "OFF"].includes(valve)) {
+      return sendError(res, "valve must be ON or OFF", 400);
     }
 
-    const log = await WaterLog.create({
-      deviceId,
-      userId: req.user._id,
-      waterQty: 0,
-      valveStatus,
-      valveChangedBy: reason || "user",
-      recordedAt: new Date(),
+    const device = await Device.findOne({
+      deviceId: req.params.deviceId.toUpperCase(),
+      userIds:  req.user._id,
     });
+    if (!device) return sendError(res, "Device not found", 404);
 
-    // TODO: Send MQTT command to device here
-    // mqttClient.publish(`device/${deviceId}/valve`, valveStatus);
+    // Publish MQTT command to device
+    const sent = publishValveCommand(device.deviceId, valve);
 
-    res.json({
-      success: true,
-      message: `Valve turned ${valveStatus}`,
-      data: log,
-    });
-  } catch (err) {
-    next(err);
+    // Optimistically update DB (device will confirm via next telemetry)
+    await Device.findByIdAndUpdate(device._id, { valveStatus: valve });
+
+    return sendSuccess(res, {
+      deviceId:    device.deviceId,
+      valve,
+      commandSent: sent,
+    }, `Valve ${valve} command sent`);
+  } catch (e) {
+    return sendError(res, e.message, 500);
   }
-};
-
-module.exports = {
-  logWaterUsage,
-  getDeviceLogs,
-  getTodaySummary,
-  getUsageHistory,
-  controlValve,
 };

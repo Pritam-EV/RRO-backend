@@ -9,6 +9,11 @@ const start = async () => {
   app.listen(PORT, () => {
     console.log(`🚀 RRO Backend running on port ${PORT} [${process.env.NODE_ENV}]`);
   });
+
+  // After app.listen(...)
+const { connectMQTT, checkDeviceHeartbeats } = require("./mqtt/mqttClient");
+connectMQTT();
+setInterval(checkDeviceHeartbeats, 60 * 1000); // check offline every 1 min
 };
 
 start();
