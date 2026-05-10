@@ -44,6 +44,7 @@ const initiatePayment = async (req, res) => {
       amount,
       referenceNumber,
       description,
+      name:  user.name  || "Customer",
       email: user.email || "",
       phone: user.mobile || "",
       metaData: [

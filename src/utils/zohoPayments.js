@@ -15,24 +15,30 @@ const zohoHeaders = async () => {
 
 /* ── Create Payment Session ───────────────────────────────── */
 const createPaymentSession = async ({
-  amount,
+  amount,          // pass in RUPEES (e.g. 500 for ₹500)
   referenceNumber,
   description,
   email,
   phone,
+  name,            // ← add this param
   metaData = [],
 }) => {
   const headers = await zohoHeaders();
 
   const payload = {
-    amount:           amount.toFixed(2),
+    amount:           Math.round(amount * 100),   // ✅ rupees → paise (integer)
     currency:         "INR",
     reference_number: referenceNumber,
     description,
-    receipt_email:    email,
-    phone,
-    meta_data:        metaData.slice(0, 5),   // Zoho max 5 metadata pairs
+    customer_details: {                           // ✅ Zoho India requires this object
+      name:  name  || "Customer",
+      email: email || "",
+      phone: phone || "",
+    },
+    meta_data: metaData.slice(0, 5),
   };
+
+  console.log("[Zoho] Creating session payload:", JSON.stringify(payload));  // temp debug log
 
   const res = await axios.post(
     `${ZOHO_PAYMENTS_BASE_URL}/paymentsessions?account_id=${process.env.ZOHO_ACCOUNT_ID}`,
