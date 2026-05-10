@@ -47,7 +47,7 @@ const initiatePayment = async (req, res) => {
       name:  user.name  || "Customer",
       email: user.email || "",
       phone: user.mobile || "",
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes from now
+      
     });
 console.log("[Zoho] Raw session response:", JSON.stringify(zohoResponse));
     // Save pending payment record
@@ -64,6 +64,7 @@ console.log("[Zoho] Raw session response:", JSON.stringify(zohoResponse));
       description,
       receiptEmail: user.email,
       status: "pending",
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes from now
     };
 
     if (orderId) paymentData.orderId = orderId;
