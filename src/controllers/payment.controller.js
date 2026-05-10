@@ -4,7 +4,7 @@ const Order = require("../models/Order.model");
 const {
   createPaymentSession,
   getPaymentById,
-  verifyWebhookToken,
+  verifyWebhookSignature,   // ← new
 } = require("../utils/zohoPayments");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 
@@ -140,14 +140,20 @@ const verifyPayment = async (req, res) => {
  * Zoho fires this on every payment event.
  * Header: X-Zoho-Webhook-Token
  */
+// ─── Webhook ──────────────────────────────────────────────────────────────────
 const handleWebhook = async (req, res) => {
   try {
-    const webhookToken = req.headers["x-zoho-webhook-token"];
-    if (!verifyWebhookToken(webhookToken)) {
-      return res.status(401).json({ success: false, message: "Invalid webhook token" });
+    // req.body is raw Buffer here (express.raw() set in app.js)
+    const rawBody         = req.body;
+    const signatureHeader = req.headers["x-zoho-signature"];
+
+    if (!verifyWebhookSignature(rawBody, signatureHeader)) {
+      console.warn("⚠️ Webhook: invalid signature — rejected");
+      return res.status(401).json({ success: false, message: "Invalid signature" });
     }
 
-    const event = req.body;
+    // Parse body after verification
+    const event      = JSON.parse(rawBody.toString("utf8"));
     const zohoPayment = event?.payment;
 
     if (!zohoPayment) return res.status(200).json({ received: true });
@@ -161,7 +167,7 @@ const handleWebhook = async (req, res) => {
       return res.status(200).json({ received: true });
     }
 
-    // Skip if already in terminal state (idempotency)
+    // Idempotency — skip if already terminal
     if (["succeeded", "failed", "canceled"].includes(payment.status)) {
       return res.status(200).json({ received: true });
     }
@@ -173,7 +179,9 @@ const handleWebhook = async (req, res) => {
       await _handlePostPayment(payment);
     }
 
+    console.log(`✅ Webhook processed: ref=${zohoPayment.reference_number} status=${zohoPayment.status}`);
     return res.status(200).json({ received: true });
+
   } catch (err) {
     console.error("Webhook error:", err.message);
     return res.status(200).json({ received: true }); // Always 200 to Zoho

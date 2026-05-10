@@ -1,10 +1,10 @@
-const axios = require("axios");
+// src/utils/zohoPayments.js
+const axios  = require("axios");
+const crypto = require("crypto");    // Node built-in — no install needed
 const { ZOHO_PAYMENTS_BASE_URL } = require("../config/constants");
-const { getZohoAccessToken } = require("./zohoToken");
+const { getZohoAccessToken }      = require("./zohoToken");
 
-/**
- * Build headers for every Zoho Payments API call
- */
+/* ── Auth headers for every Zoho API call ─────────────────── */
 const zohoHeaders = async () => {
   const token = await getZohoAccessToken();
   return {
@@ -13,19 +13,7 @@ const zohoHeaders = async () => {
   };
 };
 
-/**
- * Create a Zoho Payments session (initiates checkout)
- * Called from your backend before redirecting user to pay.
- *
- * @param {Object} opts
- * @param {number} opts.amount          - Amount in INR (e.g. 500)
- * @param {string} opts.referenceNumber - Your internal unique ref (e.g. "TOPUP-1234")
- * @param {string} opts.description     - Payment description
- * @param {string} opts.email           - Customer email
- * @param {string} opts.phone           - Customer phone (with country code)
- * @param {Array}  opts.metaData        - [{key, value}] max 5
- * @returns {Object} Zoho session response
- */
+/* ── Create Payment Session ───────────────────────────────── */
 const createPaymentSession = async ({
   amount,
   referenceNumber,
@@ -37,13 +25,13 @@ const createPaymentSession = async ({
   const headers = await zohoHeaders();
 
   const payload = {
-    amount: amount.toFixed(2),
-    currency: "INR",
+    amount:           amount.toFixed(2),
+    currency:         "INR",
     reference_number: referenceNumber,
     description,
-    receipt_email: email,
+    receipt_email:    email,
     phone,
-    meta_data: metaData.slice(0, 5),                   // Zoho max 5
+    meta_data:        metaData.slice(0, 5),   // Zoho max 5 metadata pairs
   };
 
   const res = await axios.post(
@@ -55,32 +43,23 @@ const createPaymentSession = async ({
   return res.data;
 };
 
-/**
- * Retrieve a specific payment by Zoho payment_id
- * OAuth Scope: ZohoPay.payments.READ
- */
+/* ── Get Payment by Zoho payment_id ──────────────────────── */
 const getPaymentById = async (zohoPaymentId) => {
   const headers = await zohoHeaders();
-
   const res = await axios.get(
     `${ZOHO_PAYMENTS_BASE_URL}/payments/${zohoPaymentId}?account_id=${process.env.ZOHO_ACCOUNT_ID}`,
     { headers }
   );
-
   return res.data?.payment || null;
 };
 
-/**
- * Retrieve payments list with optional filters
- * OAuth Scope: ZohoPay.payments.READ
- */
+/* ── Get Payments List ────────────────────────────────────── */
 const getPaymentsList = async ({ status, page = 1, perPage = 25 } = {}) => {
   const headers = await zohoHeaders();
-
-  const params = new URLSearchParams({
+  const params  = new URLSearchParams({
     account_id: process.env.ZOHO_ACCOUNT_ID,
     page,
-    per_page: perPage,
+    per_page:   perPage,
   });
   if (status) params.append("status", status);
 
@@ -88,21 +67,58 @@ const getPaymentsList = async ({ status, page = 1, perPage = 25 } = {}) => {
     `${ZOHO_PAYMENTS_BASE_URL}/payments?${params.toString()}`,
     { headers }
   );
-
   return res.data?.payments || [];
 };
 
-/**
- * Verify webhook signature from Zoho
- * Zoho sends X-Zoho-Webhook-Token header
+/* ── Verify Webhook Signature (HMAC-SHA256) ───────────────── 
+ *
+ *  Zoho sends:  X-Zoho-Signature: <base64-encoded HMAC-SHA256>
+ *  We compute:  HMAC-SHA256(rawBody, ZOHO_WEBHOOK_SIGNING_SECRET)
+ *  Then compare using timingSafeEqual to prevent timing attacks.
+ *
+ *  req.body MUST be the raw Buffer — guaranteed by:
+ *    app.use("/api/payments/webhook", express.raw({ type: "application/json" }))
+ *  in app.js (already set up correctly).
  */
-const verifyWebhookToken = (reqToken) => {
-  return reqToken === process.env.ZOHO_WEBHOOK_TOKEN;
+const verifyWebhookSignature = (rawBody, signatureHeader) => {
+  const secret = process.env.ZOHO_WEBHOOK_SIGNING_SECRET;
+
+  if (!secret) {
+    console.error("❌ ZOHO_WEBHOOK_SIGNING_SECRET not set in .env");
+    return false;
+  }
+  if (!signatureHeader) {
+    console.warn("⚠️ Webhook: missing X-Zoho-Signature header");
+    return false;
+  }
+
+  try {
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody)           // rawBody is Buffer from express.raw()
+      .digest("base64");
+
+    const expectedBuf  = Buffer.from(expected,         "base64");
+    const receivedBuf  = Buffer.from(signatureHeader,  "base64");
+
+    // timingSafeEqual prevents timing attacks — lengths must match
+    if (expectedBuf.length !== receivedBuf.length) return false;
+
+    return crypto.timingSafeEqual(expectedBuf, receivedBuf);
+  } catch (err) {
+    console.error("❌ Webhook signature verification error:", err.message);
+    return false;
+  }
 };
+
+/* ── Legacy token compare (kept for backward-compat fallback) ── */
+const verifyWebhookToken = (token) =>
+  token === process.env.ZOHO_WEBHOOK_TOKEN;
 
 module.exports = {
   createPaymentSession,
   getPaymentById,
   getPaymentsList,
-  verifyWebhookToken,
+  verifyWebhookSignature,   // ← new secure version
+  verifyWebhookToken,       // ← kept for backward compat
 };
