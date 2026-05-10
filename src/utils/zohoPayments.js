@@ -59,6 +59,8 @@ try {
     { headers }
   );
   return res.data;
+  console.log("[Zoho] Raw response:", JSON.stringify(res.data));
+return res.data;
 } catch (err) {
   console.error("[Zoho] API Error:", JSON.stringify(err?.response?.data)); // ✅ now shows exact Zoho error
   throw err;

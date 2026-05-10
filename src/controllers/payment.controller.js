@@ -62,9 +62,9 @@ console.log("[Zoho] Raw session response:", JSON.stringify(zohoResponse));
       userId: user._id,
       referenceNumber,
       zohoSessionId:
-        zohoResponse?.payment_session?.payments_session_id ||
-        zohoResponse?.payments_session?.payments_session_id ||
-        zohoResponse?.payments_session_id ||
+        zohoResponse?.payment_session?.payments_session_id   ||
+        zohoResponse?.payments_session?.payments_session_id  ||
+        zohoResponse?.payments_session_id                    ||
         null,
       amount,
       purpose,
