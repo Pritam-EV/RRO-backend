@@ -13,6 +13,7 @@ const productRoutes      = require("./routes/product.routes");
 const referRoutes        = require("./routes/refer.routes");
 const planRoutes = require("./routes/plan.routes");
 const cron                  = require("node-cron");
+const expireStalePayments = require("./jobs/expirePayments");
 const { expireSubscriptions } = require("./utils/subscriptionExpiry");
 
 const app = express();
@@ -64,6 +65,9 @@ app.use((req, res) => {
 
 app.use(errorHandler);
 
+setInterval(expireStalePayments, 15 * 60 * 1000);
+// Also run once on startup
+expireStalePayments();
 
 expireSubscriptions();
 

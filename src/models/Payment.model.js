@@ -40,14 +40,7 @@ const paymentSchema = new mongoose.Schema(
     description:    { type: String, default: null },
     receiptEmail:   { type: String, default: null },
     paymentMethod:  { type: String, default: null },  // upi, card, netbanking etc
-
-    // Metadata array — [{key, value}]
-    metaData: [
-      {
-        key:   { type: String },
-        value: { type: String },
-      },
-    ],
+    expiresAt: { type: Date, default: null },
 
     paidAt:      { type: Date, default: null },
     rawResponse: { type: mongoose.Schema.Types.Mixed, default: null }, // full Zoho response
