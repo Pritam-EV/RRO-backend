@@ -56,13 +56,16 @@ const initiatePayment = async (req, res) => {
         orderId ? { key: "orderId", value: orderId } : null,
       ].filter(Boolean),
     });
-
+console.log("[Zoho] Raw session response:", JSON.stringify(zohoResponse));
     // Save pending payment record
     const paymentData = {
       userId: user._id,
       referenceNumber,
       zohoSessionId:
-        zohoResponse?.payment_session?.payments_session_id || null,
+        zohoResponse?.payment_session?.payments_session_id ||
+        zohoResponse?.payments_session?.payments_session_id ||
+        zohoResponse?.payments_session_id ||
+        null,
       amount,
       purpose,
       description,
