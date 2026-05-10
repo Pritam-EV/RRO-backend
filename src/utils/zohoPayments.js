@@ -25,28 +25,44 @@ const createPaymentSession = async ({
 }) => {
   const headers = await zohoHeaders();
 
-  const payload = {
-    amount:           Math.round(amount * 100),   // ✅ rupees → paise (integer)
-    currency:         "INR",
-    reference_number: referenceNumber,
-    description,
-    customer_details: {                           // ✅ Zoho India requires this object
-      name:  name  || "Customer",
-      email: email || "",
-      phone: phone || "",
-    },
-    meta_data: metaData.slice(0, 5),
-  };
+// ✅ CORRECT
 
-  console.log("[Zoho] Creating session payload:", JSON.stringify(payload));  // temp debug log
+const hostedPageParams = {
+  phone_country_code: "IN",
+  phone:              phone || "",
+  name:               name  || "Customer",
+  description,
+  success_url: process.env.ZOHO_PAYMENT_SUCCESS_URL || "https://rro.vjratechnologies.com/payment/success",
+  failure_url: process.env.ZOHO_PAYMENT_FAILURE_URL || "https://rro.vjratechnologies.com/payment/failure",
+};
+if (email && email.trim() !== "") {
+  hostedPageParams.email = email.trim();        // ✅ skip empty email
+}
 
+const payload = {
+  amount:           amount,                     // ✅ rupees directly (100 = ₹100)
+  currency:         "INR",
+  reference_number: referenceNumber,
+  description,
+  meta_data: metaData.slice(0, 5),
+  configurations: {                             // ✅ correct field name
+    hosted_page_parameters: hostedPageParams,
+  },
+};
+
+console.log("[Zoho] Creating session payload:", JSON.stringify(payload));
+
+try {
   const res = await axios.post(
     `${ZOHO_PAYMENTS_BASE_URL}/paymentsessions?account_id=${process.env.ZOHO_ACCOUNT_ID}`,
     payload,
     { headers }
   );
-
   return res.data;
+} catch (err) {
+  console.error("[Zoho] API Error:", JSON.stringify(err?.response?.data)); // ✅ now shows exact Zoho error
+  throw err;
+}
 };
 
 /* ── Get Payment by Zoho payment_id ──────────────────────── */
